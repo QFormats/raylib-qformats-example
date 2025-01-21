@@ -1,0 +1,6 @@
+[submodule "deps/libqbsp"]
+	path = deps/libqbsp
+	url = git@github.com:QFormats/libqbsp.git
+[submodule "deps/libqwad"]
+	path = deps/libqwad
+	url = git@github.com:QFormats/libqwad.git

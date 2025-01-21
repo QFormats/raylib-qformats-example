@@ -1,0 +1,155 @@
+#include "material.h"
+#include <string.h>
+
+#ifdef __APPLE__
+#include <OpenGL/gl3.h>
+#elif
+#include <GL/gl.h>
+#endif
+
+WadManager *WadManager::instance = new WadManager();
+
+const char *vs = R"""(
+#version 330
+
+// Input vertex attributes
+layout (location = 0) in vec3 vertexPosition;
+layout (location = 1) in vec2 vertexTexCoord;
+layout (location = 5) in vec2 vertexTexCoord2;
+
+// Input uniform values
+uniform mat4 mvp;
+uniform mat4 matModel;
+
+// Output vertex attributes (to fragment shader)
+out vec3 fragPosition;
+out vec2 fragTexCoord;
+out vec2 fragTexCoord2;
+
+void main()
+{
+    // Send vertex attributes to fragment shader
+    fragPosition = vec3(matModel*vec4(vertexPosition, 1.0));
+    fragTexCoord = vertexTexCoord;
+    fragTexCoord2 = vertexTexCoord2;
+
+    // Calculate final vertex position
+    gl_Position = mvp*vec4(vertexPosition, 1.0);
+}
+)""";
+
+const char *fs = R"""(
+#version 330
+
+// Input vertex attributes (from vertex shader)
+in vec2 fragTexCoord;
+in vec2 fragTexCoord2;
+in vec3 fragPosition;
+in vec4 fragColor;
+
+// Input uniform values
+uniform sampler2D texture0;
+uniform sampler2D texture1;
+
+// Output fragment color
+out vec4 finalColor;
+
+void main()
+{
+    // Texel color fetching from texture sampler
+    vec4 result = texture(texture0, fragTexCoord);
+    vec3 total_light;
+    vec4 lm0 = textureLod(texture1, fragTexCoord2, 0.);
+    total_light = lm0.xyz;
+    total_light *= 2.0;
+	result.rgb *= total_light;
+	result = clamp(result, 0.0, 1.0);
+	
+    finalColor = result;
+}
+)""";
+
+WadManager const *WadManager::Instance()
+{
+    if (instance == nullptr)
+    {
+        instance = new WadManager();
+    }
+    return instance;
+}
+
+WadManager::WadManager()
+{
+    defaultWad = wad::QuakeWad::NewQuakeWad();
+}
+
+void WadManager::AddWad(const string &wadFile)
+{
+    auto w = wad::QuakeWad::FromFile(wadFile);
+    wads.push_back(w);
+}
+
+wad::QuakeTexture *WadManager::FromBuffer(uint8_t *buff, int width, int height) const
+{
+    const auto w = wads.size() > 0 ? wads[0] : defaultWad;
+    return w->FromBuffer(buff, width, height);
+}
+
+wad::QuakeTexture *WadManager::FindTexture(const string &name) const
+{
+    wad::QuakeTexture *t = nullptr;
+    for (auto &w : wads)
+    {
+        if (t = w->GetTexture(name); t != nullptr)
+        {
+            break;
+        }
+    }
+    return t;
+}
+
+Shader RayMaterial::m_defaultshader;
+
+RayMaterial::RayMaterial() : m_mat(LoadMaterialDefault())
+{
+    if (m_defaultshader.id == 0)
+    {
+        RayMaterial::m_defaultshader = LoadShaderFromMemory(vs,
+                                                            fs);
+    }
+    return;
+}
+
+RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture)
+{
+    Image image;
+    std::locale loc;
+    RayMaterial *rm = new RayMaterial();
+    rm->m_quakeTexture = texture;
+
+    const size_t size = rm->m_quakeTexture->raw.size() * sizeof(qformats::wad::color);
+    image.data = RL_MALLOC(size);
+
+    // Allocate required memory in bytes
+    memcpy(image.data, &rm->m_quakeTexture->raw[0], size);
+    image.width = rm->m_quakeTexture->width;
+    image.height = rm->m_quakeTexture->height;
+    image.mipmaps = 1;
+    image.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+    rm->m_rayTexture = LoadTextureFromImage(image);
+    MemFree(image.data);
+    GenTextureMipmaps(&rm->m_rayTexture);
+    SetTextureFilter(rm->m_rayTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
+    rm->m_mat.shader = m_defaultshader;
+    rm->m_mat.maps[MATERIAL_MAP_ALBEDO].texture = rm->m_rayTexture;
+    rm->m_mat.maps[MATERIAL_MAP_ALBEDO].color = WHITE;
+
+    return rm;
+}
+
+RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture, Texture lightmap)
+{
+    auto rm = FromQuakeTexture(texture);
+    rm->m_mat.maps[MATERIAL_MAP_METALNESS].texture = lightmap;
+    return rm;
+}
