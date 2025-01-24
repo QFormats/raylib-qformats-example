@@ -53,7 +53,7 @@ void App::LoadMap()
 
     for (const auto &tex : bsp->Textures())
     {
-        auto qt = WadManager::Instance()->FromBuffer(tex.data, tex.width, tex.height);
+        auto qt = WadManager::Instance()->FromBuffer(tex.name, tex.data, tex.width, tex.height);
         materials.push_back(RayMaterial::FromQuakeTexture(qt, lmTex));
     }
 
@@ -100,6 +100,9 @@ void App::Run()
             UpdateCamera(&camera, CAMERA_FREE);
         }
 
+        RayMaterial::SetCamera(&camera.position);
+        RayMaterial::SetTime(GetTime());
+
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
@@ -114,7 +117,10 @@ void App::Run()
                 DrawGrid(64, 1.0f); // Draw a grid
         }
         EndMode3D();
-        DrawFPS(10, 10);
+        if (config.showFPS)
+        {
+            DrawFPS(10, 10);
+        }
 
         EndDrawing();
     }

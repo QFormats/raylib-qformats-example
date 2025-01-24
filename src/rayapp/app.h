@@ -10,6 +10,7 @@ struct AppConfig
 {
     bool DrawGrid = false;
     bool drawWireFrame = false;
+    bool showFPS = false;
     int windowWidth = 640;
     int windowHeight = 480;
     string bspPath = "";

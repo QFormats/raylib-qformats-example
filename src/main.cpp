@@ -82,4 +82,5 @@ int main(int argc, char *argv[])
 
     std::cout << "bsp loaded in: " << time / std::chrono::milliseconds(1) << " ms\n";
     app.Run();
+    return 0;
 }

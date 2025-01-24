@@ -9,7 +9,7 @@
 
 WadManager *WadManager::instance = new WadManager();
 
-const char *vs = R"""(
+const char *default_vs = R"""(
 #version 330
 
 // Input vertex attributes
@@ -38,7 +38,7 @@ void main()
 }
 )""";
 
-const char *fs = R"""(
+const char *default_fs = R"""(
 #version 330
 
 // Input vertex attributes (from vertex shader)
@@ -69,6 +69,73 @@ void main()
 }
 )""";
 
+const char *sky_vs = R"""(
+#version 330
+
+// Input vertex attributes
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+
+// Input uniform values
+uniform mat4 mvp;
+uniform mat4 matModel;
+
+uniform vec3 camera;
+
+// Output vertex attributes (to fragment shader)
+out vec3 fragPosition;
+out vec2 fragTexCoord;
+out vec3 fragDir;
+
+void main()
+{
+    fragPosition = vec3(matModel*vec4(vertexPosition, 1.0));
+    fragTexCoord = vertexTexCoord;
+    fragDir = vertexPosition - camera;
+    gl_Position = mvp*vec4(vertexPosition, 1.0);
+    
+}
+)""";
+
+const char *sky_fs = R"""(
+#version 330
+
+// Input vertex attributes (from vertex shader)
+in vec2 fragTexCoord;
+in vec3 fragDir;
+
+out vec3 fragPosition;
+
+// Input uniform values
+uniform sampler2D texture0;
+uniform sampler2D texture1;
+uniform float time;
+
+// Output fragment color
+out vec4 finalColor;
+
+void main()
+{
+   vec3 dir = fragDir;
+   dir.y *= 3;
+   dir = normalize(dir) * 6*63 / 128.f;
+   float scroll = time / 8;
+
+   vec2 texCoordFront = vec2(scroll + dir.x, scroll - dir.z);
+   scroll = scroll / 2;
+   vec2 texCoordBack = vec2(scroll + dir.x, scroll - dir.z);
+
+   vec4 backColor = texture(texture0, (texCoordBack * vec2(1,0.5))*1.2);
+   vec4 frontColor = texture(texture1, (texCoordFront * vec2(1,0.5))*1.2);
+   vec4 color = frontColor;
+   if (frontColor.x + frontColor.y + frontColor.z < .01f) {
+      color = backColor;
+   }
+
+   finalColor = color * 1.4;
+}
+)""";
+
 WadManager const *WadManager::Instance()
 {
     if (instance == nullptr)
@@ -89,10 +156,10 @@ void WadManager::AddWad(const string &wadFile)
     wads.push_back(w);
 }
 
-wad::QuakeTexture *WadManager::FromBuffer(uint8_t *buff, int width, int height) const
+wad::QuakeTexture *WadManager::FromBuffer(const std::string &texname, uint8_t *buff, int width, int height) const
 {
     const auto w = wads.size() > 0 ? wads[0] : defaultWad;
-    return w->FromBuffer(buff, width, height);
+    return w->FromBuffer(buff, wad::QuakeWad::IsSkyTexture(texname), width, height);
 }
 
 wad::QuakeTexture *WadManager::FindTexture(const string &name) const
@@ -109,38 +176,67 @@ wad::QuakeTexture *WadManager::FindTexture(const string &name) const
 }
 
 Shader RayMaterial::m_defaultshader;
+Shader RayMaterial::m_skyshader;
+int RayMaterial::m_camUniformLoc = 0;
+int RayMaterial::m_timeUniformLoc = 0;
 
 RayMaterial::RayMaterial() : m_mat(LoadMaterialDefault())
 {
     if (m_defaultshader.id == 0)
     {
-        RayMaterial::m_defaultshader = LoadShaderFromMemory(vs,
-                                                            fs);
+        RayMaterial::m_defaultshader = LoadShaderFromMemory(default_vs, default_fs);
+        RayMaterial::m_skyshader = LoadShaderFromMemory(sky_vs, sky_fs);
+        m_camUniformLoc = GetShaderLocation(m_skyshader, "camera");
+        m_timeUniformLoc = GetShaderLocation(m_skyshader, "time");
     }
     return;
 }
 
-RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture)
+void RayMaterial::SetCamera(Vector3 *camPos)
+{
+    SetShaderValue(m_skyshader, m_camUniformLoc, camPos, SHADER_UNIFORM_VEC3);
+}
+
+void RayMaterial::SetTime(float time)
+{
+    SetShaderValue(m_skyshader, m_timeUniformLoc, &time, SHADER_UNIFORM_FLOAT);
+}
+
+Texture2D generateTexture(size_t size, int width, int height, void *buff)
 {
     Image image;
-    std::locale loc;
+    image.data = RL_MALLOC(size);
+    memcpy(image.data, buff, size);
+    image.width = width;
+    image.height = height;
+    image.mipmaps = 1;
+    image.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+
+    auto tex = LoadTextureFromImage(image);
+    MemFree(image.data);
+    GenTextureMipmaps(&tex);
+    SetTextureFilter(tex, TEXTURE_FILTER_ANISOTROPIC_16X);
+    return tex;
+}
+
+RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture)
+{
     RayMaterial *rm = new RayMaterial();
     rm->m_quakeTexture = texture;
 
     const size_t size = rm->m_quakeTexture->raw.size() * sizeof(qformats::wad::color);
-    image.data = RL_MALLOC(size);
+    rm->m_rayTexture = generateTexture(size, rm->m_quakeTexture->width, rm->m_quakeTexture->height, &rm->m_quakeTexture->raw[0]);
 
-    // Allocate required memory in bytes
-    memcpy(image.data, &rm->m_quakeTexture->raw[0], size);
-    image.width = rm->m_quakeTexture->width;
-    image.height = rm->m_quakeTexture->height;
-    image.mipmaps = 1;
-    image.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
-    rm->m_rayTexture = LoadTextureFromImage(image);
-    MemFree(image.data);
-    GenTextureMipmaps(&rm->m_rayTexture);
-    SetTextureFilter(rm->m_rayTexture, TEXTURE_FILTER_ANISOTROPIC_16X);
-    rm->m_mat.shader = m_defaultshader;
+    if (texture->type == wad::TTYPE_SKY_TEXTURE)
+    {
+        rm->m_mat.shader = m_skyshader;
+        auto skyFront = generateTexture(size, rm->m_quakeTexture->width, rm->m_quakeTexture->height, &rm->m_quakeTexture->raw[0]);
+        rm->m_mat.maps[MATERIAL_MAP_METALNESS].texture = skyFront;
+    }
+    else
+    {
+        rm->m_mat.shader = m_defaultshader;
+    }
     rm->m_mat.maps[MATERIAL_MAP_ALBEDO].texture = rm->m_rayTexture;
     rm->m_mat.maps[MATERIAL_MAP_ALBEDO].color = WHITE;
 
@@ -150,6 +246,10 @@ RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture)
 RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture, Texture lightmap)
 {
     auto rm = FromQuakeTexture(texture);
-    rm->m_mat.maps[MATERIAL_MAP_METALNESS].texture = lightmap;
+    if (rm->m_quakeTexture->type != wad::TTYPE_SKY_TEXTURE)
+    {
+        rm->m_mat.maps[MATERIAL_MAP_METALNESS].texture = lightmap;
+    }
+
     return rm;
 }
