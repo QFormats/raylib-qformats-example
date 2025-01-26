@@ -7,7 +7,7 @@
 
 #ifdef __APPLE__
 #include <OpenGL/gl3.h>
-#elif
+#else
 #include <GL/gl.h>
 #endif
 
@@ -68,7 +68,8 @@ void App::LoadMap()
         models.push_back(m);
     }
 
-    auto pstart = bsp->Entities("info_player_start", [&](const qbsp::EntityPtr pstart) -> bool {
+    auto pstart = bsp->Entities("info_player_start", [&](const qbsp::EntityPtr pstart) -> bool
+                                {
         camera.position =
             Vector3{pstart->Origin().x / inverseScale, pstart->Origin().y / inverseScale, pstart->Origin().z / inverseScale};
         const auto angle = pstart->Angle() * DEG2RAD;
@@ -78,8 +79,7 @@ void App::LoadMap()
         camera.target.x = camera.position.x + target.x;
         camera.target.y = camera.position.y + target.y;
         camera.target.z = camera.position.z + target.z;
-        return false;
-    });
+        return false; });
 
     RayMaterial::SetFogDensity(0.07);
 
