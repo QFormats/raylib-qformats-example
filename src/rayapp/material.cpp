@@ -50,8 +50,12 @@ in vec4 fragColor;
 // Input uniform values
 uniform sampler2D texture0;
 uniform sampler2D texture1;
+uniform vec3 camera;
+uniform float fogDensity;
+
 
 // Output fragment color
+
 out vec4 finalColor;
 
 void main()
@@ -64,8 +68,28 @@ void main()
     total_light *= 2.0;
 	result.rgb *= total_light;
 	result = clamp(result, 0.0, 1.0);
-	
     finalColor = result;
+
+        // Gamma correction
+    finalColor = pow(finalColor, vec4(1.2/1.4));
+
+    // Fog calculation
+    float dist = length(camera - fragPosition);
+
+    // these could be parameters...
+    const vec4 fogColor = vec4(0.12, 0.11, 0.15, 1);
+    //const float fogDensity = 0.16;
+
+    // Exponential fog
+    //float fogFactor = 1.0/exp((dist*fogDensity)*(dist*fogDensity));
+
+    // Linear fog (less nice)
+    const float fogStart = 2.0;
+    const float fogEnd = 15.0;
+    float fogFactor = (fogEnd - dist)/(fogEnd - fogStart);
+
+    fogFactor = clamp(fogFactor, 0.0, 1.0);
+    finalColor = mix(fogColor, finalColor, fogFactor);
 }
 )""";
 
@@ -119,14 +143,14 @@ void main()
    vec3 dir = fragDir;
    dir.y *= 3;
    dir = normalize(dir) * 6*63 / 128.f;
-   float scroll = time / 8;
+   float scroll = time / 12;
 
    vec2 texCoordFront = vec2(scroll + dir.x, scroll - dir.z);
    scroll = scroll / 2;
    vec2 texCoordBack = vec2(scroll + dir.x, scroll - dir.z);
 
    vec4 backColor = texture(texture0, (texCoordBack * vec2(1,0.5))*1.2);
-   vec4 frontColor = texture(texture1, (texCoordFront * vec2(1,0.5))*1.2);
+   vec4 frontColor = texture(texture1, (texCoordFront * vec2(1,0.5))*1.7);
    vec4 color = frontColor;
    if (frontColor.x + frontColor.y + frontColor.z < .01f) {
       color = backColor;
@@ -177,8 +201,11 @@ wad::QuakeTexture *WadManager::FindTexture(const string &name) const
 
 Shader RayMaterial::m_defaultshader;
 Shader RayMaterial::m_skyshader;
-int RayMaterial::m_camUniformLoc = 0;
-int RayMaterial::m_timeUniformLoc = 0;
+
+int RayMaterial::m_defaultCamUniformLoc = 0;
+int RayMaterial::m_skyCamUniformLoc = 0;
+int RayMaterial::m_skyTimeUniformLoc = 0;
+float RayMaterial::m_defaultFogDensityUniformLoc = 0;
 
 RayMaterial::RayMaterial() : m_mat(LoadMaterialDefault())
 {
@@ -186,20 +213,28 @@ RayMaterial::RayMaterial() : m_mat(LoadMaterialDefault())
     {
         RayMaterial::m_defaultshader = LoadShaderFromMemory(default_vs, default_fs);
         RayMaterial::m_skyshader = LoadShaderFromMemory(sky_vs, sky_fs);
-        m_camUniformLoc = GetShaderLocation(m_skyshader, "camera");
-        m_timeUniformLoc = GetShaderLocation(m_skyshader, "time");
+        m_defaultFogDensityUniformLoc = GetShaderLocation(m_defaultshader, "fogDensity");
+        m_defaultCamUniformLoc = GetShaderLocation(m_defaultshader, "camera");
+        m_skyCamUniformLoc = GetShaderLocation(m_skyshader, "camera");
+        m_skyTimeUniformLoc = GetShaderLocation(m_skyshader, "time");
     }
     return;
 }
 
 void RayMaterial::SetCamera(Vector3 *camPos)
 {
-    SetShaderValue(m_skyshader, m_camUniformLoc, camPos, SHADER_UNIFORM_VEC3);
+    SetShaderValue(m_defaultshader, m_defaultCamUniformLoc, camPos, SHADER_UNIFORM_VEC3);
+    SetShaderValue(m_skyshader, m_skyCamUniformLoc, camPos, SHADER_UNIFORM_VEC3);
 }
 
 void RayMaterial::SetTime(float time)
 {
-    SetShaderValue(m_skyshader, m_timeUniformLoc, &time, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(m_skyshader, m_skyTimeUniformLoc, &time, SHADER_UNIFORM_FLOAT);
+}
+
+void RayMaterial::SetFogDensity(float density)
+{
+    SetShaderValue(m_defaultshader, m_defaultFogDensityUniformLoc, &density, SHADER_UNIFORM_FLOAT);
 }
 
 Texture2D generateTexture(size_t size, int width, int height, void *buff)
@@ -230,7 +265,8 @@ RayMaterial *RayMaterial::FromQuakeTexture(wad::QuakeTexture *texture)
     if (texture->type == wad::TTYPE_SKY_TEXTURE)
     {
         rm->m_mat.shader = m_skyshader;
-        auto skyFront = generateTexture(size, rm->m_quakeTexture->width, rm->m_quakeTexture->height, &rm->m_quakeTexture->raw[0]);
+        auto skytex = dynamic_cast<wad::QuakeSkyTexture *>(rm->m_quakeTexture);
+        auto skyFront = generateTexture(size, rm->m_quakeTexture->width, rm->m_quakeTexture->height, &skytex->rawFront[0]);
         rm->m_mat.maps[MATERIAL_MAP_METALNESS].texture = skyFront;
     }
     else

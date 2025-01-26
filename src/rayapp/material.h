@@ -24,6 +24,7 @@ class RayMaterial
     static RayMaterial *FromQuakeTexture(wad::QuakeTexture *texture, Texture lightmap);
     static void SetCamera(Vector3 *camPos);
     static void SetTime(float time);
+    static void SetFogDensity(float density);
 
     RayMaterial();
     ~RayMaterial();
@@ -45,8 +46,11 @@ class RayMaterial
     Texture2D m_rayTexture;
     static Shader m_defaultshader;
     static Shader m_skyshader;
-    static int m_camUniformLoc;
-    static int m_timeUniformLoc;
+
+    static int m_defaultCamUniformLoc;
+    static float m_defaultFogDensityUniformLoc;
+    static int m_skyCamUniformLoc;
+    static int m_skyTimeUniformLoc;
 
     wad::QuakeTexture *m_quakeTexture;
 };

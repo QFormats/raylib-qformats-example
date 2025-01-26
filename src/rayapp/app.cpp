@@ -81,6 +81,8 @@ void App::LoadMap()
         return false;
     });
 
+    RayMaterial::SetFogDensity(0.07);
+
     return;
 }
 

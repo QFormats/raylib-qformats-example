@@ -1,32 +1,14 @@
 #include "model.h"
-#include <raymath.h>
 #include <map>
+#include <raymath.h>
 
-// Get identity matrix
-
-/*
-0 -1 0 0
-0 0 1 0
--1 0 0 0
-0 0 0 1
-*/
-
-static Matrix MatrixQIdentity(void)
-{
-    Matrix result = {0.0f, -1.0f, 0.0f, 0.0f,
-                     0.0f, 0.0f, 1.0f, 0.0f,
-                     -1.0f, 0.0f, 0.0f, 0.0f,
-                     0.0f, 0.0f, 0.0f, 1.0f};
-
-    return result;
-}
-
-RayModel *RayModel::FromQuakeSolidEntity(const qbsp::SolidEntityPtr ent, float inverseScale, const std::vector<RayMaterial *> &mats)
+RayModel *RayModel::FromQuakeSolidEntity(const qbsp::SolidEntityPtr ent, float inverseScale,
+                                         const std::vector<RayMaterial *> &mats)
 {
     RayModel *rm = new RayModel();
     std::vector<int> meshesMatIDs;
 
-    int fc = 0;
+    int fc = 0, matCount = 0;
     for (const auto f : ent->Faces())
     {
         auto mesh = Mesh{0};
@@ -60,7 +42,6 @@ RayModel *RayModel::FromQuakeSolidEntity(const qbsp::SolidEntityPtr ent, float i
         meshesMatIDs.push_back(f->info->texture_id);
     }
 
-    // rm->m_model.transform = MatrixMultiply(MatrixIdentity(), MatrixRotateX(DEG2RAD * -90));
     rm->m_model.transform = MatrixIdentity();
     rm->m_model.meshCount = rm->m_meshes.size();
 
@@ -76,7 +57,7 @@ RayModel *RayModel::FromQuakeSolidEntity(const qbsp::SolidEntityPtr ent, float i
     for (int m = 0; m < rm->m_model.meshCount; m++)
     {
         rm->m_model.meshes[m] = rm->m_meshes[m];
-        rm->m_model.meshMaterial[m] = meshesMatIDs[m] - 1;
+        rm->m_model.meshMaterial[m] = meshesMatIDs[m];
     }
 
     return rm;
